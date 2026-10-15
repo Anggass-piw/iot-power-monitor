@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.db
+.venv/
+.pytest_cache/
+firmware/esp32_power_monitor/config.h

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Power Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --paper:#EDF1F3; --panel:#F8FAFB; --ink:#12263A; --muted:#5B6E7E; --line:#C9D3D9;
+    --teal:#0E6B73; --amber:#C77D0A; --alarm:#B3261E;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink); font-family:'Archivo',system-ui,sans-serif; line-height:1.4; }
+  main { max-width:960px; margin:0 auto; padding:20px 16px 40px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+  h1 { font-size:1.1rem; font-weight:600; margin:0; }
+  #status { font-size:.9rem; color:var(--muted); }
+
+  /* The one memorable element: a big power readout whose bar flips to alarm on anomalies. */
+  .hero { margin-top:16px; background:var(--panel); border:1px solid var(--line); border-left:8px solid var(--teal); padding:20px 20px 16px; transition:border-color .2s; }
+  .hero.alarm { border-left-color:var(--alarm); }
+  .power { font-size:clamp(3.5rem,14vw,6.5rem); font-weight:800; letter-spacing:-.03em; line-height:1; margin:0; }
+  .power small { font-size:.3em; font-weight:600; color:var(--muted); letter-spacing:0; margin-left:6px; }
+  #verdict { margin:8px 0 0; font-weight:600; color:var(--teal); }
+  .hero.alarm #verdict { color:var(--alarm); }
+
+  .row { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:12px; }
+  .stat { background:var(--panel); border:1px solid var(--line); padding:12px 14px; }
+  .stat b { display:block; font-size:1.6rem; font-weight:600; }
+  .stat span { color:var(--muted); font-size:.85rem; }
+
+  .chart { margin-top:12px; background:var(--panel); border:1px solid var(--line); padding:12px; height:300px; }
+  h2 { font-size:1rem; font-weight:600; margin:24px 0 8px; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:8px 0; border-top:1px solid var(--line); font-size:.92rem; }
+  li time { color:var(--muted); margin-right:8px; }
+  .empty { color:var(--muted); }
+  @media (max-width:520px) { .row { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Power Monitor</h1>
+    <div id="status">Waiting for data…</div>
+  </header>
+
+  <section class="hero" id="hero">
+    <p class="power"><span id="p">–</span><small>W</small></p>
+    <p id="verdict">No readings yet</p>
+  </section>
+
+  <section class="row">
+    <div class="stat"><b id="v">–</b><span>Voltage (V)</span></div>
+    <div class="stat"><b id="i">–</b><span>Current (A)</span></div>
+    <div class="stat"><b id="e">–</b><span>Energy (kWh)</span></div>
+  </section>
+
+  <section class="chart"><canvas id="chart"></canvas></section>
+
+  <h2>Recent anomalies</h2>
+  <ul id="anomalies"><li class="empty">None detected</li></ul>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const time = ts => new Date(ts * 1000).toLocaleTimeString();
+
+const chart = new Chart($('chart'), {
+  type: 'line',
+  data: { labels: [], datasets: [
+    { label: 'Power (W)', data: [], borderColor: '#0E6B73', borderWidth: 2, tension: .25, yAxisID: 'p' },
+    { label: 'Current (A)', data: [], borderColor: '#C77D0A', borderWidth: 2, tension: .25, yAxisID: 'i', pointRadius: 0 },
+  ]},
+  options: {
+    animation: false, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: { ticks: { maxTicksLimit: 6 } },
+      p: { position: 'left', title: { display: true, text: 'W' }, beginAtZero: true },
+      i: { position: 'right', title: { display: true, text: 'A' }, beginAtZero: true, grid: { drawOnChartArea: false } },
+    },
+  },
+});
+
+async function refresh() {
+  try {
+    const [rows, anomalies] = await Promise.all([
+      fetch('/api/readings?limit=120').then(r => r.json()),
+      fetch('/api/anomalies?limit=8').then(r => r.json()),
+    ]);
+    if (!rows.length) return;
+    const last = rows[rows.length - 1];
+
+    $('p').textContent = last.power.toFixed(1);
+    $('v').textContent = last.voltage.toFixed(1);
+    $('i').textContent = last.current.toFixed(2);
+    $('e').textContent = last.energy_kwh.toFixed(4);
+    $('hero').classList.toggle('alarm', !!last.anomaly);
+    $('verdict').textContent = last.anomaly ? last.reason : 'Normal';
+    $('status').textContent = `${last.device_id} · updated ${time(last.ts)}`;
+
+    chart.data.labels = rows.map(r => time(r.ts));
+    chart.data.datasets[0].data = rows.map(r => r.power);
+    chart.data.datasets[0].pointRadius = rows.map(r => r.anomaly ? 5 : 0);
+    chart.data.datasets[0].pointBackgroundColor = rows.map(() => '#B3261E');
+    chart.data.datasets[1].data = rows.map(r => r.current);
+    chart.update();
+
+    const list = $('anomalies');
+    list.replaceChildren();
+    if (!anomalies.length) {
+      const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'None detected';
+      list.append(li);
+    }
+    for (const a of anomalies) {
+      const li = document.createElement('li');
+      const t = document.createElement('time'); t.textContent = time(a.ts);
+      li.append(t, a.reason);
+      list.append(li);
+    }
+  } catch (err) {
+    $('status').textContent = 'Backend unreachable. Is the server running?';
+  }
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
