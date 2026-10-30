@@ -2,5 +2,6 @@
 #define WIFI_SSID "your-wifi-name"
 #define WIFI_PASS "your-wifi-password"
 #define SERVER_URL "http://192.168.1.10:8000/api/readings"  // PC running the backend
+#define INGEST_API_KEY "copy-the-same-long-random-key-used-by-the-backend"
 #define DEVICE_ID "esp32-01"
 #define POST_INTERVAL_MS 2000
