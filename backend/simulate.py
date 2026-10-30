@@ -1,18 +1,24 @@
 """Send fake readings to the backend so you can run the project without hardware.
 
-Usage: python simulate.py [--url http://localhost:8000/api/readings] [--interval 1]
+Usage: INGEST_API_KEY=<same-key-as-backend> python simulate.py
+       python simulate.py [--url http://localhost:8000/api/readings] [--interval 1]
 """
 import argparse
 import json
 import math
+import os
 import random
 import time
 import urllib.request
 
 
 def post(url, payload):
+    headers = {"Content-Type": "application/json"}
+    api_key = os.getenv("INGEST_API_KEY", "").strip()
+    if api_key:
+        headers["X-API-Key"] = api_key
     req = urllib.request.Request(
-        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+        url, data=json.dumps(payload).encode(), headers=headers
     )
     with urllib.request.urlopen(req, timeout=5) as resp:
         return json.load(resp)

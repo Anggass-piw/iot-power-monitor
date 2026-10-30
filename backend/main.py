@@ -1,10 +1,11 @@
+import hmac
 import os
 import sqlite3
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -48,8 +49,16 @@ class Reading(BaseModel):
     energy_kwh: float = Field(default=0, ge=0)
 
 
+def require_ingest_key(api_key: str | None = Header(default=None, alias="X-API-Key")) -> None:
+    expected_key = os.getenv("INGEST_API_KEY", "").strip()
+    if not expected_key:
+        raise HTTPException(status_code=503, detail="Ingest authentication is not configured")
+    if api_key is None or not hmac.compare_digest(api_key, expected_key):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
 @app.post("/api/readings")
-def add_reading(r: Reading):
+def add_reading(r: Reading, _auth: None = Depends(require_ingest_key)):
     reasons = detector.check(r.device_id, r.voltage, r.current, r.power)
     with connect() as conn:
         conn.execute(
